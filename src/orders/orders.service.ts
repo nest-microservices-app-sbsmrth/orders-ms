@@ -1,26 +1,77 @@
-import { Injectable } from '@nestjs/common';
+import { HttpStatus, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
-import { UpdateOrderDto } from './dto/update-order.dto';
+import { PrismaClient } from 'generated/prisma';
+import { OrderPaginationDto } from './dto/order-pagination.dto';
+import { RpcException } from '@nestjs/microservices';
+import { ChangeOrderStatusDto } from './dto';
 
 @Injectable()
-export class OrdersService {
+export class OrdersService extends PrismaClient implements OnModuleInit {
+  private readonly logger = new Logger('OrdersService');
+
+  async onModuleInit() {
+    await this.$connect();
+    this.logger.log('Connected to the database');
+  }
+
   create(createOrderDto: CreateOrderDto) {
-    return 'This action adds a new order';
+    return this.order.create({
+      data: createOrderDto,
+    });
   }
 
-  findAll() {
-    return `This action returns all orders`;
+  async findAll(orderPaginationDto: OrderPaginationDto) {
+    const totalPages = await this.order.count({
+      where: {
+        status: orderPaginationDto.status,
+      },
+    });
+
+    const currentPage = orderPaginationDto.page ?? 1;
+    const perPage = orderPaginationDto.limit ?? 10;
+
+    return {
+      data: await this.order.findMany({
+        skip: (currentPage - 1) * perPage,
+        take: perPage,
+        where: {
+          status: orderPaginationDto.status,
+        },
+      }),
+      meta: {
+        total: totalPages,
+        page: currentPage,
+        lastPage: Math.ceil(totalPages / perPage),
+      },
+    };
   }
 
-  findOne(id: number) {
-    return `This action returns a #${id} order`;
+  async findOne(id: string) {
+    const order = await this.order.findFirst({
+      where: { id },
+    });
+
+    if (!order) {
+      throw new RpcException({
+        status: HttpStatus.NOT_FOUND,
+        message: `Order with id ${id} not found`,
+      });
+    }
+
+    return order;
   }
 
-  update(id: number, updateOrderDto: UpdateOrderDto) {
-    return `This action updates a #${id} order`;
-  }
+  async changeStatus(changeOrderStatusDto: ChangeOrderStatusDto) {
+    const { id, status } = changeOrderStatusDto;
 
-  remove(id: number) {
-    return `This action removes a #${id} order`;
+    const order = await this.findOne(id);
+    if (order.status === status) {
+      return order;
+    }
+
+    return this.order.update({
+      where: { id },
+      data: { status: status },
+    });
   }
 }
