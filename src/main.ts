@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { Logger } from '@nestjs/common';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
+import { envs } from './config';
 
 async function bootstrap() {
   const logger = new Logger('OrdersMS-Main');
@@ -11,12 +12,12 @@ async function bootstrap() {
     {
       transport: Transport.TCP,
       options: {
-        port: 3002,
+        port: envs.port,
       },
     },
   );
 
   await app.listen();
-  logger.log('Orders Microservice is running on port 3002');
+  logger.log('Orders Microservice is running on port ' + envs.port);
 }
 bootstrap();

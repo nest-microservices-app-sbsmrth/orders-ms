@@ -1,12 +1,27 @@
-import { HttpStatus, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import {
+  HttpStatus,
+  Inject,
+  Injectable,
+  Logger,
+  OnModuleInit,
+} from '@nestjs/common';
 import { CreateOrderDto } from './dto/create-order.dto';
 import { PrismaClient } from 'generated/prisma';
 import { OrderPaginationDto } from './dto/order-pagination.dto';
-import { RpcException } from '@nestjs/microservices';
+import { ClientProxy, RpcException } from '@nestjs/microservices';
 import { ChangeOrderStatusDto } from './dto';
+import { PRODUCTS_SERVICE_CLIENT } from 'src/config';
+import { firstValueFrom } from 'rxjs';
 
 @Injectable()
 export class OrdersService extends PrismaClient implements OnModuleInit {
+  constructor(
+    @Inject(PRODUCTS_SERVICE_CLIENT)
+    private readonly productsClient: ClientProxy,
+  ) {
+    super();
+  }
+
   private readonly logger = new Logger('OrdersService');
 
   async onModuleInit() {
@@ -14,10 +29,95 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
     this.logger.log('Connected to the database');
   }
 
-  create(createOrderDto: CreateOrderDto) {
-    return this.order.create({
-      data: createOrderDto,
-    });
+  async create(createOrderDto: CreateOrderDto) {
+    try {
+      const products = await firstValueFrom<
+        { price: number; quantity: number; id: number; name: string }[]
+      >(
+        this.productsClient.send(
+          'validate_products',
+          createOrderDto.items.map((item) => item.productId),
+        ),
+      );
+
+      const updatedOrderItems = createOrderDto.items.map((item) => {
+        const product = products.find(
+          (product) => product.id === item.productId,
+        );
+
+        return {
+          ...item,
+          price: product?.price || 0,
+        };
+      });
+
+      const totalItems = updatedOrderItems.reduce(
+        (total, item) => total + item.quantity,
+        0,
+      );
+
+      const totalAmount = updatedOrderItems.reduce(
+        (total, item) => total + item.price * item.quantity,
+        0,
+      );
+
+      const order = await this.order.create({
+        data: {
+          totalItems,
+          totalAmount,
+          OrderItem: {
+            createMany: {
+              data: updatedOrderItems,
+            },
+          },
+        },
+        include: {
+          // OrderItem: true, // Retrieve the order items in the response
+          OrderItem: {
+            select: {
+              price: true,
+              quantity: true,
+              productId: true,
+            },
+          },
+        },
+      });
+
+      const { OrderItem, ...orderData } = order;
+
+      return {
+        ...orderData,
+        orderItems: OrderItem.map((item) => {
+          const productName = products.find(
+            (product) => product.id === item.productId,
+          )?.name;
+
+          return {
+            ...item,
+            name: productName,
+          };
+        }),
+      };
+    } catch (error) {
+      this.logger.error('Error creating order: ', error);
+      throw new RpcException({
+        status: HttpStatus.BAD_REQUEST,
+        message: 'Error creating order.',
+      });
+    }
+
+    /*
+      // return products; -> If we just return like this, no firstValueFrom is needed.
+      Cause nest detects it is an observable and wait for it to resolve.
+      If we return it in an object, nest will not automatically unwrap the observable
+      and we will need to use firstValueFrom to get the value.
+
+      return {
+        service: 'Orders MS',
+        products,
+      }
+
+    */
   }
 
   async findAll(orderPaginationDto: OrderPaginationDto) {
