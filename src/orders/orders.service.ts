@@ -5,11 +5,14 @@ import {
   Logger,
   OnModuleInit,
 } from '@nestjs/common';
-import { CreateOrderDto } from './dto/create-order.dto';
-import { PrismaClient } from 'generated/prisma';
-import { OrderPaginationDto } from './dto/order-pagination.dto';
+import {
+  CreateOrderDto,
+  OrderPaginationDto,
+  ChangeOrderStatusDto,
+  PaidOrderDto,
+} from './dto';
+import { OrderStatus, PrismaClient } from 'generated/prisma';
 import { ClientProxy, RpcException } from '@nestjs/microservices';
-import { ChangeOrderStatusDto } from './dto';
 import { NATS_SERVICE } from 'src/config';
 import { firstValueFrom } from 'rxjs';
 import { OrderWithProducts } from './interfaces/order-with-products.interface';
@@ -229,6 +232,41 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
     return this.order.update({
       where: { id },
       data: { status: status },
+    });
+  }
+
+  async handlePaidOrder(paidOrderDto: PaidOrderDto) {
+    return await this.$transaction(async (prisma) => {
+      // Update order status
+
+      const { id: orderId } = await prisma.order.update({
+        where: { id: paidOrderDto.orderId },
+        data: { status: OrderStatus.PAID, paid: true },
+      });
+
+      // Payment creation with receipt
+
+      const payment = await prisma.orderPayment.create({
+        data: {
+          orderId,
+          stripeChargeId: paidOrderDto.stripePaymentId,
+          receipt: {
+            create: {
+              receiptUrl: paidOrderDto.receiptUrl,
+            },
+          },
+        },
+        include: {
+          receipt: true,
+        },
+      });
+
+      return {
+        orderId,
+        paymentId: payment.id,
+        receiptId: payment.receipt?.id,
+        receiptUrl: payment.receipt?.receiptUrl,
+      };
     });
   }
 }
