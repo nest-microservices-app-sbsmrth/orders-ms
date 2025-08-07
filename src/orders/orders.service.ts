@@ -12,6 +12,7 @@ import { ClientProxy, RpcException } from '@nestjs/microservices';
 import { ChangeOrderStatusDto } from './dto';
 import { NATS_SERVICE } from 'src/config';
 import { firstValueFrom } from 'rxjs';
+import { OrderWithProducts } from './interfaces/order-with-products.interface';
 
 @Injectable()
 export class OrdersService extends PrismaClient implements OnModuleInit {
@@ -29,7 +30,7 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
     this.logger.log('Connected to the database');
   }
 
-  async create(createOrderDto: CreateOrderDto) {
+  async create(createOrderDto: CreateOrderDto): Promise<OrderWithProducts> {
     try {
       const products = await firstValueFrom<
         { price: number; quantity: number; id: number; name: string }[]
@@ -88,9 +89,9 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
       return {
         ...orderData,
         orderItems: OrderItem.map((item) => {
-          const productName = products.find(
-            (product) => product.id === item.productId,
-          )?.name;
+          const productName =
+            products.find((product) => product.id === item.productId)?.name ||
+            '';
 
           return {
             ...item,
@@ -118,6 +119,30 @@ export class OrdersService extends PrismaClient implements OnModuleInit {
       }
 
     */
+  }
+
+  async createPaymentSession(orderWithProducts: OrderWithProducts) {
+    const paymentSession: {
+      cancelUrl: string;
+      successUrl: string;
+      url: string;
+    } = await firstValueFrom(
+      this.natsClient.send('create.payment.session', {
+        orderId: orderWithProducts.id,
+        currency: 'usd',
+        items: orderWithProducts.orderItems.map((item) => ({
+          name: item.name,
+          price: item.price,
+          quantity: item.quantity,
+        })),
+      }),
+    );
+
+    return {
+      cancelUrl: paymentSession.cancelUrl,
+      successUrl: paymentSession.successUrl,
+      url: paymentSession.url, // payment url
+    };
   }
 
   async findAll(orderPaginationDto: OrderPaginationDto) {
