@@ -1,4 +1,9 @@
+Dockerfile
+.dockerignore
 dist/
+npm-debug.log
 node_modules/
 .env
 .vscode/
+.git
+README.md
