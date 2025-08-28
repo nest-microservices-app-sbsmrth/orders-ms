@@ -19,6 +19,9 @@ ARG DATABASE_URL_ARG
 ENV DATABASE_URL=$DATABASE_URL_ARG 
 # DATABASE_URL variable is needed in order to run migrations
 
+# Imprimir el arg para ver el valor recibido
+RUN echo "database_url ::: $DATABASE_URL_ARG";
+
 WORKDIR /app
 
 COPY --from=deps /app/node_modules ./node_modules
