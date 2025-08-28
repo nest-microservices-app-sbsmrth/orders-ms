@@ -3,6 +3,7 @@ pipeline {
     environment {
         DOCKER_HUB_CREDENTIALS_ID = 'dockerhub-access'
         DOCKER_HUB_REPO = 'sbsmrth/products-app-orders-ms'
+        ORDERS_MS_DB_URL = 'orders-ms-db-url'
     }
     stages {
         stage('Docker Build') {
@@ -10,7 +11,7 @@ pipeline {
                 script {
                     dockerImage = docker.build(
                         "${DOCKER_HUB_REPO}:latest", 
-                        "-f Dockerfile.prod ."
+                        "--build-arg DATABASE_URL_ARG=${ORDERS_MS_DB_URL} -f Dockerfile.prod ."
                     )
                 }
             }
