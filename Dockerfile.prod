@@ -16,7 +16,7 @@ RUN \
 FROM node:22-alpine3.22 AS builder
 
 ARG DATABASE_URL_ARG
-ENV DATABASE_URL=${DATABASE_URL_ARG} 
+ENV DATABASE_URL=$DATABASE_URL_ARG 
 # DATABASE_URL variable is needed in order to run migrations
 
 WORKDIR /app
